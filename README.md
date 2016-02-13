@@ -1,4 +1,4 @@
-Erstellt für Odroid XU3
+# Erstellt für Odroid XU3
 
 Benötigt:
 wget http://launchpadlibrarian.net/158294196/hostapd_1.0-3ubuntu2.1_armhf.deb
