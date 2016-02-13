@@ -10,4 +10,4 @@ sudo apt-mark hold hostapd
 
 Treiber für USB-Wlan-Stick
 
-Minimum: QT4/
+Minimum: QT4/5?
