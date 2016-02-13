@@ -37,11 +37,6 @@ MainWindow::MainWindow(QWidget *parent) :
 
         start();
 
-        QString name = qgetenv("USER");
-        if (name.isEmpty())
-            name = qgetenv("USERNAME");
-        qDebug() << name;
-
     }
 
 void MainWindow::info()
