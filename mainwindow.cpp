@@ -36,7 +36,6 @@ MainWindow::MainWindow(QWidget *parent) :
         check_root();
 
         start();
-        // test
     }
 
 void MainWindow::info()
