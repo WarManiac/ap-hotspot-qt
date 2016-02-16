@@ -9,32 +9,15 @@
 #include <QDebug>
 #include <QProcess>
 #include <QFile>
+#include <QTimer>
 
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
-    {
-        ui->setupUi(this);
-
-        /* Global variables */
-        user = qgetenv("USER");
-        if (user.isEmpty())
-            user = qgetenv("USERNAME");
-
-        logfile="/tmp/hostapd.log";
-        pidfile="/tmp/hotspot.pid";
-        //hotspotconfig="/etc/ap-hotspot.conf";
-        /**/hotspotconfig="ap-hotspot.conf";
-        hotspotini   ="/ap-hotspot.ini";
-        //dnsmasqconfig="/etc/dnsmasq.d/ap-hotspot.rules";
-        /**/dnsmasqconfig="ap-hotspot.rules";
-        all_interfaces=QNetworkInterface().allInterfaces();
-
-        get_vars();
-        qDebug()<<check_supported();
-    }
 /*
+ *  USB WLAN STICK bei Verwendung mehrer Sticks kann wlan0 zu wlan1 werden je nach ansteck weise deewegen
+ *  MAC-Adresse bei der INI verwenden!!!
+ *  Erkennung von AP-Support abfrage einzellen um aus zuschliesen das ein Stick AP Support und ein andere nicht
+
     Global Variablen
-    G_USER
     G_LOG_FILE
     G_PID_FILE
     G_HOTSPOTCONF
@@ -50,11 +33,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     INET= (wlanX/ethX)MAC
 
 
-
     ToDo list:
-    GUI und CLI Version
 
-    Interface Erkennung an MAC Adresse (ethX/wlanX)
+    ROOT Check
+    Interface Erkennung an der MAC Adresse (ethX/wlanX)
     Test AP Support wlan0 wlan1 wlanX
     Test AP_Interface on und nicht verbunden
     erst mal Start ini anlegen
@@ -63,11 +45,54 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     STOP
     RESTART
     Lese LOG
+
+    GUI und CLI Version Erstellung
 */
 
+
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
+    {
+        ui->setupUi(this);
+        QTimer::singleShot(500, this, SLOT(first_check_root()));
+
+        /*
+         Global variables
+        user = qgetenv("USER");
+        if (user.isEmpty())
+            user = qgetenv("USERNAME");
+
+        logfile="/tmp/hostapd.log";
+        pidfile="/tmp/hotspot.pid";
+        //hotspotconfig="/etc/ap-hotspot.conf";
+        hotspotconfig="ap-hotspot.conf";
+        hotspotini   ="/ap-hotspot.ini";
+        //dnsmasqconfig="/etc/dnsmasq.d/ap-hotspot.rules";
+        dnsmasqconfig="ap-hotspot.rules";
+        all_interfaces=QNetworkInterface().allInterfaces();
+
+        get_vars();
+        qDebug()<<check_supported();
+        */
+    }
 MainWindow::~MainWindow()
     {
         delete ui;
+    }
+
+void MainWindow::first_check_root()
+    {
+        QString user = qgetenv("USER");
+        if (user.isEmpty())
+            user = qgetenv("USERNAME");
+        if (user=="root")
+            {
+                get_vars();
+                return;
+            }
+        else
+            {
+                qApp->exit(1);
+            }
     }
 
 QString MainWindow::mac_to_name(QString mac)
