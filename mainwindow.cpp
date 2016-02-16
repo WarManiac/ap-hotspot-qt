@@ -5,186 +5,353 @@
 #include <QTextStream>
 
 #include <QNetworkInterface>
+#include <QNetworkAddressEntry>
 #include <QDebug>
 #include <QProcess>
+#include <QFile>
 
-MainWindow::MainWindow(QWidget *parent) :
-    QMainWindow(parent),
-    ui(new Ui::MainWindow)
+
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
     {
         ui->setupUi(this);
 
-        ui->INTERFACE_NET_mac->setInputMask(QString("HH:HH:HH:HH:HH:HH;0"));
-        ui->INTERFACE_mac->setInputMask(QString("HH:HH:HH:HH:HH:HH;0"));
-
-        hotspotconfigini="/etc/ap-hotspot.ini";
-        hotspotconfigini="ap-hotspot.ini";
-        read();
-
+        /* Global variables */
+        user = qgetenv("USER");
+        if (user.isEmpty())
+            user = qgetenv("USERNAME");
 
         logfile="/tmp/hostapd.log";
         pidfile="/tmp/hotspot.pid";
-        hotspotconfig="/etc/ap-hotspot.conf";
-        hotspotconfigini="/etc/ap-hotspot.ini";
-        dnsmasqconfig="/etc/dnsmasq.d/ap-hotspot.rules";
-        /*
-        $user=$(who | awk '{print $1}' | sed '/^root$/d' | uniq)
-        $WMPID=$(ps -u $user | tail -n 1 | awk '{print $1}')
-        $DBUS=$(egrep -z 'DBUS_SESSION_BUS_ADDRESS|DISPLAY' /proc/${WMPID}/environ | sed -r -e 's/(.)DBUS_/\1 $
-        */
-        read();
-        check_root();
+        //hotspotconfig="/etc/ap-hotspot.conf";
+        /**/hotspotconfig="ap-hotspot.conf";
+        hotspotini   ="/ap-hotspot.ini";
+        //dnsmasqconfig="/etc/dnsmasq.d/ap-hotspot.rules";
+        /**/dnsmasqconfig="ap-hotspot.rules";
+        all_interfaces=QNetworkInterface().allInterfaces();
 
-        start();
+        get_vars();
+        qDebug()<<check_supported();
     }
+/*
+    Global Variablen
+    G_USER
+    G_LOG_FILE
+    G_PID_FILE
+    G_HOTSPOTCONF
+    G_HOTSPOTINI
+    G_DNSMASQCONF
+    G_ALL_INTERFACES
+    G_INI_AP
+    G_INI_INET
 
-void MainWindow::info()
-    {
+    INI Aufbau
+    [hotspotini]
+    AP  = (wlanX)MAC
+    INET= (wlanX/ethX)MAC
 
-    }
+
+
+    ToDo list:
+    GUI und CLI Version
+
+    Interface Erkennung an MAC Adresse (ethX/wlanX)
+    Test AP Support wlan0 wlan1 wlanX
+    Test AP_Interface on und nicht verbunden
+    erst mal Start ini anlegen
+    Lese/Speicher ini Datei
+    START
+    STOP
+    RESTART
+    Lese LOG
+*/
 
 MainWindow::~MainWindow()
     {
         delete ui;
     }
 
-void MainWindow::save()
+QString MainWindow::mac_to_name(QString mac)
     {
-
-    }
-
-void MainWindow::read()
-    {
-        QSettings settings(hotspotconfigini,QSettings::NativeFormat);
-        //ap-hotspot.conf
-        //  WiFi Hotspot
-            ui->INTERFACE_mac->setText(settings.value("ap-hotspot/interface_MAC"                , "").toString());
-            ui->INTERFACE_mac->setInputMask(QString("HH:HH:HH:HH:HH:HH;0"));
-            ui->INTERFACE->setText(settings.value("ap-hotspot/interface"                        , "wlan0").toString());
-
-            ui->INTERFACE_NET_mac->setText(settings.value("ap-hotspot/interface_MAC"            , "").toString());
-            ui->INTERFACE_NET_mac->setInputMask(QString("HH:HH:HH:HH:HH:HH;0"));
-            ui->INTERFACE_NET->setText(settings.value("hotspot/INTERFACE_NET"                   , "eth0").toString());
-            ui->driver->setText(settings.value("ap-hotspot/driver"                              , "nl80211").toString());
-
-        //  Access Point
-            ui->ssid->setText(settings.value("ap-hotspot/ssid"                                  , "myhotspot").toString());
-            ui->hw_mode->setText(settings.value("ap-hotspot/hw_mode"                            , "g").toString());
-        //  WiFi Channel
-            ui->channel->setText(settings.value("ap-hotspot/channel"                            , "1").toString());
-            ui->macaddr_acl->setText(settings.value("ap-hotspot/macaddr_acl"                    , "0").toString());
-            ui->auth_algs->setText(settings.value("ap-hotspot/auth_algs"                        , "1").toString());
-            ui->ignore_broadcast_ssid->setText(settings.value("ap-hotspot/ignore_broadcast_ssid", "0").toString());
-            ui->wpa->setText(settings.value("ap-hotspot/wpa"                                    , "2").toString());
-            ui->wpa_passphrase->setText(settings.value("ap-hotspot/wpa_passphrase"              , "qwerty0987").toString());
-            ui->wpa_key_mgmt->setText(settings.value("ap-hotspot/wpa_key_mgmt"                  , "WPA-PSK").toString());
-            ui->wpa_pairwise->setText(settings.value("ap-hotspot/wpa_pairwise"                  , "TKIP").toString());
-            ui->rsn_pairwise->setText(settings.value("ap-hotspot/rsn_pairwise"                  , "CCMP").toString());
-        //  dnsmasq.d
-            ui->bind_interfaces->setText(settings.value("hotspot/bind-interfaces"               , "bind-interfaces").toString());
-            ui->dhcp_range->setText(settings.value("hotspot/dhcp-range"                         , "192.168.150.2,192.168.150.10,12h").toString());
-            ui->INTERFACE_NET->setText(settings.value("hotspot/INTERFACE_NET"                   , "eth0").toString());
-    }
-
-
-
-void MainWindow::on_INTERFACE_NET_textChanged(const QString &arg1)
-    {
-        if (ui->INTERFACE_NET_mac->text()==":::::")
+        foreach (QNetworkInterface var, all_interfaces)
             {
-                foreach (QNetworkInterface Interfaces, QNetworkInterface().allInterfaces())
+                if (var.hardwareAddress()==mac)
+                    return var.name();
+            }
+        return "N/A";
+    }
+
+
+QList<QStringList> MainWindow::check_supported()
+    {
+        QProcess *myProcess =new QProcess(this);
+        myProcess->start("iw", QStringList()<<"dev");
+        myProcess->waitForFinished();
+        QString T= QString(myProcess->readAll()).replace("\n"," ").replace("\r"," ").replace("\t","").replace("  "," ");
+        myProcess->close();
+        QRegExp rx("phy#(\\d+) Interface (\\w+)");
+        int pos = 0;
+        int count = 0;
+        QList<QStringList> supported;
+        while (pos >= 0) {
+            pos = rx.indexIn(T, pos);
+            if (pos >= 0) {
+                    QStringList tt;
+                    tt<<"phy"+rx.cap(1)<<rx.cap(2);
+
+                    myProcess->start("iw", QStringList()<<("phy"+rx.cap(1))<<"info");
+                    myProcess->waitForFinished();
+                    QString ttt=QString(myProcess->readAll().replace("\t","").replace("\n"," ").replace("  "," "));
+                    QRegExp rx1("(Supported interface modes:)(?:.*)( AP )");
+                    rx1.indexIn(ttt);
+                    if (rx1.capturedTexts().at(2)==" AP ")
+                        {
+                            tt<<"AP";
+                        }
+                    supported.append(tt);
+                ++pos;
+                ++count;
+            }
+        }
+        return supported;
+    }
+
+bool MainWindow::check_supported(QString inter)
+    {
+
+    }
+
+bool MainWindow::check_network()
+    {
+        QProcess *myProcess =new QProcess(this);
+        myProcess->start("iwconfig", QStringList()<<INTERFACE_WLAN);
+        myProcess->waitForFinished();
+        QByteArray t=myProcess->readAll();
+        myProcess->close();
+        if (t.indexOf("Tx-Power=off") != -1)
+            {
+                qDebug()<<"WiFi is disabled, please enable WiFi before running this script";
+                return false;
+            } else
+            {
+                if ( t.indexOf("ESSID:off/any")==-1 && t.indexOf("ESSID:")!=-1 )
                     {
-                        if (Interfaces.name()==arg1)
+                        qDebug()<<"Please disconnect WiFi before proceeding";
+                        return false;
+                    }
+            }
+        return true;
+    }
+
+void MainWindow::get_vars()
+    {
+        QSettings settings("ap-hotspot.ini",QSettings::IniFormat);
+
+        settings.beginGroup("hotspotconfig");
+        INTERFACE_WLAN        = settings.value("INTERFACE_WLAN"        ,"wlan0"                            ).toString();
+        INTERFACE_WLAN_HEX    = settings.value("INTERFACE_WLAN_HEX"    ,""                                 ).toString();
+        INTERFACE_ETH         = settings.value("INTERFACE_ETH"         ,"eth0"                             ).toString();
+        INTERFACE_ETH_HEX     = settings.value("INTERFACE_ETH_HEX"     ,""                                 ).toString();
+        driver                = settings.value("driver"                ,"nl80211"                          ).toString();
+        ssid                  = settings.value("ssid"                  ,"myhotspot"                        ).toString();
+        hw_mode               = settings.value("hw_mode"               ,"g"                                ).toString();
+        channel               = settings.value("channel"               ,"1"                                ).toString();
+        macaddr_acl           = settings.value("macaddr_acl"           ,"0"                                ).toString();
+        auth_algs             = settings.value("auth_algs"             ,"1"                                ).toString();
+        ignore_broadcast_ssid = settings.value("ignore_broadcast_ssid" ,"0"                                ).toString();
+        wpa                   = settings.value("wpa"                   ,"2"                                ).toString();
+        wpa_passphrase        = settings.value("wpa_passphrase"        ,"qwerty0987"                       ).toString();
+        wpa_key_mgmt          = settings.value("wpa_key_mgmt"          ,"WPA-PSK"                          ).toString();
+        wpa_pairwise          = settings.value("wpa_pairwise"          ,"TKIP"                             ).toString();
+        rsn_pairwise          = settings.value("rsn_pairwise"          ,"CCMP"                             ).toString();
+        settings.endGroup();
+
+        settings.beginGroup("dnsmasqconfig");
+        bindinterfaces        = settings.value("bind-interfaces"        ,"bind-interfaces"                 ).toString();
+        interface             = settings.value("interface"              ,"wlan0"                           ).toString();
+        dhcprange             = settings.value("dhcp-range"             ,"192.168.150.2,192.168.150.10,12h").toString();
+        settings.endGroup();
+
+        if (INTERFACE_WLAN_HEX=="")
+            {
+                foreach (QNetworkInterface var, all_interfaces)
+                    {
+                        if (var.name()==INTERFACE_WLAN)
                             {
-                                ui->INTERFACE_NET_mac->setText( Interfaces.hardwareAddress().toLatin1() );
+                                settings.beginGroup("hotspotconfig");
+                                settings.setValue("INTERFACE_WLAN_HEX",var.hardwareAddress());
+                                settings.endGroup();
+                                INTERFACE_WLAN_HEX=var.hardwareAddress();
                             }
                     }
             } else
             {
-                foreach (QNetworkInterface Interfaces, QNetworkInterface().allInterfaces())
+                foreach (QNetworkInterface var, all_interfaces)
                     {
-                        if (Interfaces.hardwareAddress()==ui->INTERFACE_NET_mac->text())
+                        if (var.hardwareAddress()==INTERFACE_WLAN_HEX)
                             {
-                                ui->INTERFACE_NET->setText( Interfaces.name().toLatin1() );
+                                settings.beginGroup("hotspotconfig");
+                                settings.setValue("INTERFACE_WLAN",var.name());
+                                settings.endGroup();
+                                INTERFACE_WLAN=var.name();
                             }
                     }
             }
 
-    }
-
-void MainWindow::on_INTERFACE_NET_mac_textChanged(const QString &arg1)
-    {
-        foreach (QNetworkInterface Interfaces, QNetworkInterface().allInterfaces())
+        if (INTERFACE_ETH_HEX=="")
             {
-                if (Interfaces.hardwareAddress()==ui->INTERFACE_NET_mac->text())
+                foreach (QNetworkInterface var, all_interfaces)
                     {
-                        ui->INTERFACE_NET->setText( Interfaces.name().toLatin1() );
-                    } else
+                        if (var.name()==INTERFACE_ETH)
+                            {
+                                settings.beginGroup("hotspotconfig");
+                                settings.setValue("INTERFACE_ETH_HEX",var.hardwareAddress());
+                                settings.endGroup();
+                                INTERFACE_ETH_HEX=var.hardwareAddress();
+                            }
+                    }
+            } else
+            {
+                foreach (QNetworkInterface var, all_interfaces)
                     {
-                        ui->INTERFACE_NET->setText("N/A");
+                        if (var.hardwareAddress()==INTERFACE_ETH_HEX)
+                            {
+                                settings.beginGroup("hotspotconfig");
+                                settings.setValue("INTERFACE_ETH",var.name());
+                                settings.endGroup();
+                                INTERFACE_ETH=var.name();
+                            }
                     }
             }
+        settings.beginGroup("hotspotconfig");
+        settings.setValue("INTERFACE_WLAN"        ,INTERFACE_WLAN);
+        settings.setValue("INTERFACE_WLAN_HEX"    ,INTERFACE_WLAN_HEX);
+        settings.setValue("INTERFACE_ETH"         ,INTERFACE_ETH);
+        settings.setValue("INTERFACE_ETH_HEX"     ,INTERFACE_ETH_HEX);
+        settings.setValue("driver"                ,driver);
+        settings.setValue("ssid"                  ,ssid);
+        settings.setValue("hw_mode"               ,hw_mode);
+        settings.setValue("channel"               ,channel);
+        settings.setValue("macaddr_acl"           ,macaddr_acl);
+        settings.setValue("auth_algs"             ,auth_algs);
+        settings.setValue("ignore_broadcast_ssid" ,ignore_broadcast_ssid);
+        settings.setValue("wpa"                   ,wpa);
+        settings.setValue("wpa_passphrase"        ,wpa_passphrase);
+        settings.setValue("wpa_key_mgmt"          ,wpa_key_mgmt);
+        settings.setValue("wpa_pairwise"          ,wpa_pairwise);
+        settings.setValue("rsn_pairwise"          ,rsn_pairwise);
+        settings.endGroup();
+
+        settings.beginGroup("dnsmasqconfig");
+        settings.setValue("bind-interfaces"        ,bindinterfaces);
+        settings.setValue("interface"              ,interface);
+        settings.setValue("dhcp-range"             ,dhcprange);
+        settings.endGroup();
     }
-
-void MainWindow::check_root()
-    {
-        QString name = qgetenv("USER");
-        if (name.isEmpty())
-            name = qgetenv("USERNAME");
-        qDebug() << name;
-        if (name=="root")
-            {
-
-            }else
-            {
-                qApp->exit(1);
-            }
-    }
-
 
 void MainWindow::start()
     {
-        QProcess *myProcess = new QProcess(this);
-        //check_root();
-        //check_supported();
-        //get_vars();
-        //check_network();
+        QProcess *myProcess =new QProcess(this);
 
+        myProcess->start("service", QStringList()<<"hostapd"<<"stop");
+        myProcess->waitForFinished();
 
-        //myProcess->start("service", QStringList()<<"hostapd"<<"stop");
-        //myProcess->waitForFinished();
-        //qDebug()<<myProcess->readAllStandardOutput();
-        //qDebug()<<myProcess->readAllStandardError();
-        //myProcess->close();
+        myProcess->start("service", QStringList()<<"dnsmasq"<<"stop");
+        myProcess->waitForFinished();
 
-        /*
-        service hostapd stop 2>&1 | show_debug
-        service dnsmasq stop 2>&1 | show_debug
-        update-rc.d hostapd disable 2>&1 | show_debug
-        update-rc.d dnsmasq disable 2>&1 | show_debug
-        # Configure IP address for WLAN
-        ifconfig "$INTERFACE_WLAN" 192.168.150.1 2>&1 | show_debug
-        # Start DHCP/DNS server
-        service dnsmasq restart 2>&1 | show_debug
-        # Enable routing
-        sysctl net.ipv4.ip_forward=1 2>&1 | show_debug
-        # Enable NAT
-        iptables -t nat -A POSTROUTING -o "$INTERFACE_NET" -j MASQUERADE 2>&1 | show_debug
-        # Run access point daemon
-        if [[ $(hostapd --help 2>&1 | grep "\-f") ]]; then
-                rm -f "$logfile"
-                touch "$logfile"
-                hostapd -B "$hotspotconfig" -f "$logfile"
-                while :
-                do
-                        [[ $(grep "Using interface" "$logfile") ]] && show_info "Wireless Hotspot active" && break
-                        sleep 5
-                done
-                check_connected 2>&1 &
-                disown
-        else
-                hostapd -B "$hotspotconfig" 2>&1 | show_debug
-                show_info "Wireless Hotspot active"
-        fi
-        */
+        myProcess->start("update-rc.d", QStringList()<<"hostapd"<<"disable");
+        myProcess->waitForFinished();
+
+        myProcess->start("update-rc.d", QStringList()<<"dnsmasq"<<"disable");
+        myProcess->waitForFinished();
+
+        myProcess->start("ifconfig", QStringList()<<INTERFACE_WLAN<<"192.168.150.1");
+        myProcess->waitForFinished();
+
+        myProcess->start("service", QStringList()<<"dnsmasq"<<"restart");
+        myProcess->waitForFinished();
+
+        myProcess->start("sysctl", QStringList()<<"net.ipv4.ip_forward=1");
+        myProcess->waitForFinished();
+
+        myProcess->start("iptables", QStringList()<<"-t"<<"nat"<<"-A"<<"POSTROUTING"<<"-o"<<INTERFACE_ETH<<"-j"<<"MASQUERADE");
+        myProcess->waitForFinished();
+
+        Hotspotconfig();
+        Dnsmasqconfig();
+
+        myProcess->start("rm", QStringList()<<"-f"<<logfile);
+        myProcess->waitForFinished();
+        myProcess->start("rm", QStringList()<<"-f"<<pidfile);
+        myProcess->waitForFinished();
+
+        myProcess->start("hostapd",  QStringList()<<"-B"<<hotspotconfig<<"-f"<<logfile);
+        QFile file(pidfile);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+            return;
+        QTextStream out(&file);
+        out<<myProcess->pid();
+        myProcess->waitForFinished();
+    }
+
+void MainWindow::hostapd_status()
+    {
+
+    }
+
+void MainWindow::hostapd_stop()
+    {
+
+    }
+
+void MainWindow::hostapd_start()
+    {
+
+    }
+
+void MainWindow::hostapd_restart()
+    {
+
+    }
+
+void MainWindow::Hotspotconfig()
+    {
+        QFile file(hotspotconfig);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+            return;
+        QTextStream out(&file);
+        out << "# WiFi Hotspot"<<"\n";
+        out << "interface="+INTERFACE_WLAN<<"\n";
+        out << "driver="+driver<<"\n";
+        out << "#Access Point"<<"\n";
+        out << "ssid="+ssid<<"\n";
+        out << "hw_mode="+hw_mode<<"\n";
+        out << "# WiFi Channel:"<<"\n";
+        out << "channel="+channel<<"\n";
+        out << "macaddr_acl="+macaddr_acl<<"\n";
+        out << "auth_algs="+auth_algs<<"\n";
+        out << "ignore_broadcast_ssid="+ignore_broadcast_ssid<<"\n";
+        out << "wpa="+wpa<<"\n";
+        out << "wpa_passphrase="+wpa_passphrase<<"\n";
+        out << "wpa_key_mgmt="+wpa_key_mgmt<<"\n";
+        out << "wpa_pairwise="+wpa_pairwise<<"\n";
+        out << "rsn_pairwise="+rsn_pairwise<<"\n";
+        file.close();
+    }
+
+void MainWindow::Dnsmasqconfig()
+    {
+        QFile file(dnsmasqconfig);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+            return;
+        QTextStream out(&file);
+        out << "# WiFi Hotspot"<<"\n";
+        out << "# Bind to only one interface\n";
+        out << bindinterfaces<<"\n";
+        out << "# Choose interface for binding\n";
+        out << "interface="+INTERFACE_WLAN<<"\n";
+        out << "# Specify range of IP addresses for DHCP leasses"<<"\n";
+        out << "dhcp-range="+dhcprange<<"\n";
+        out << "#INTERFACE_NET="+INTERFACE_ETH<<"\n";
+
+        file.close();
     }
